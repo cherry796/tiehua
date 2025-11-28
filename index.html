@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>非遗打铁花 AI 体验</title>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<style>
+body{margin:0;background:#000;font-family:serif;overflow:hidden;position:relative}
+#canvas,#v{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover}
+#spoon,#flower{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:200px;height:200px;display:none;pointer-events:none}
+#flower{width:300px;height:300px}
+#txt{position:absolute;bottom:10%;left:50%;transform:translateX(-50%);width:80%;background:rgba(0,0,0,.7);color:#f90;border:1px solid #f90;border-radius:8px;padding:12px 16px;font-size:16px;text-align:center;display:none}
+#end{position:absolute;inset:0;background:#000;color:#f90;display:none;flex-direction:column;align-items:center;justify-content:center;font-size:20px}
+#end button{margin-top:20px;padding:8px 20px;font-size:16px;background:#f90;color:#000;border:none;border-radius:4px}
+</style>
+</head>
+<body>
+<!-- 摄像头 -->
+<video id="v" autoplay playsinline></video>
+<canvas id="canvas" style="display:none"></canvas>
+
+<!-- 特效元素 -->
+<img id="spoon" src="https://cdn.jsdelivr.net/gh/zhaoolee/garss/imgs/spoon.png">
+<img id="flower" src="https://cdn.jsdelivr.net/gh/zhaoolee/garss/imgs/flower.gif">
+
+<!-- 文案弹窗 -->
+<div id="txt"></div>
+
+<!-- 尾页 -->
+<div id="end">
+  <div>🎉 体验完成！你已掌握打铁花核心技巧</div>
+  <button onclick="location.reload()">再玩一次</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3/camera_utils.min.js"></script>
+<script>
+const v   = document.getElementById('v');
+const ctx = document.getElementById('canvas').getContext('2d');
+const spoon  = document.getElementById('spoon');
+const flower = document.getElementById('flower');
+const txt    = document.getElementById('txt');
+const end    = document.getElementById('end');
+
+const FIST_TH  = 0.03;
+const LIFT_TH  = 0.08;
+const TIME_WIN = 800;
+
+let lastWy = -1, lastTime = 0;
+const tips=[8,12,16,20], bases=[5,9,13,17];
+
+/* 文案库 */
+const words = {
+  fist: '握拳即握勺：柳木勺需浸水防潮，方能盛起1600℃铁水！',
+  lift: '扬臂飞花：铁水撞击空气瞬间氧化，万点金星绽放！'
+};
+
+/* 通用 2s 弹窗 + 回调 */
+function showTxt(type, cb){
+  txt.textContent = words[type];
+  txt.style.display = 'block';
+  setTimeout(()=>{
+    txt.style.display='none';
+    cb && cb();
+  },2000);
+}
+
+/* 结束体验 */
+function goEnd(){
+  v.style.display='none';          // 关摄像画面
+  flower.style.display='none';
+  spoon.style.display='none';
+  end.style.display='flex';        // 显示尾页
+}
+
+/* 每帧回调 */
+function onResults(res){
+  if(res.multiHandLandmarks && res.multiHandLandmarks.length){
+    const lm = res.multiHandLandmarks[0];
+    const now = performance.now();
+
+    /* 1. 握拳 -> 木勺 + 指示文案（仅一次） */
+    const fist = tips.every(i=>lm[i].y > lm[bases[tips.indexOf(i)]].y + FIST_TH);
+    if(fist && !spoon._shown){          // _shown 自制标志位
+      spoon.style.display = 'block';
+      spoon._shown = true;
+      showTxt('fist');
+    }else if(!fist){
+      spoon.style.display = 'none';
+    }
+
+    /* 2. 抬手 -> 铁花 + 知识点 -> 结束体验 */
+    const wy = lm[0].y;
+    if(lastWy>=0){
+      const dy = Math.abs(wy - lastWy);
+      if(dy > LIFT_TH && now - lastTime < TIME_WIN){
+        flower.style.display = 'block';
+        showTxt('lift',()=>{
+          // 知识点弹完 → 3 秒后结束
+          setTimeout(goEnd,3000);
+        });
+        lastWy = -1; // 防止重复触发
+      }
+    }
+    lastWy = wy; lastTime = now;
+  }else{
+    lastWy = -1;
+  }
+}
+
+/* MediaPipe 初始化 */
+const hands = new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/${f}`});
+hands.setOptions({maxNumHands:1, modelComplexity:0, minDetectionConfidence:0.7});
+hands.onResults(onResults);
+
+/* 开摄像头 */
+navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}})
+  .then(stream=>{
+    v.srcObject = stream;
+    v.onloadedmetadata=()=>{
+      const cam = new Camera(v,{onFrame:async()=>await hands.send({image:v}),width:v.videoWidth,height:v.videoHeight});
+      cam.start();
+    };
+  })
+  .catch(err=>alert('摄像头权限失败：'+err));
+</script>
+</body>
+</html>
